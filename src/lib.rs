@@ -156,11 +156,15 @@ impl IntoIterator for Tabfile {
 /// ```
 pub struct RowIterator {
     tabfile: Tabfile,
+    next_line_number: usize,
 }
 
 impl RowIterator {
     fn new(tabfile: Tabfile) -> RowIterator {
-        RowIterator { tabfile }
+        RowIterator {
+            tabfile,
+            next_line_number: 0,
+        }
     }
 }
 
@@ -173,6 +177,7 @@ impl Iterator for RowIterator {
                 Ok(line_length) => {
                     if self.tabfile.skip_lines > 0 {
                         self.tabfile.skip_lines -= 1;
+                        self.next_line_number += 1;
                         continue;
                     }
                     if line_length == 0 {
@@ -180,13 +185,20 @@ impl Iterator for RowIterator {
                     } else {
                         if let Some(comment_char) = self.tabfile.comment_character {
                             if line.starts_with(comment_char) {
+                                self.next_line_number += 1;
                                 continue; // fetch next line
                             }
                         }
                         if line.trim() == "" && self.tabfile.skip_empty_lines {
+                            self.next_line_number += 1;
                             continue;
                         }
-                        return Some(Ok(Record::new(line, self.tabfile.separator)));
+                        self.next_line_number += 1; //line numbers are 1-based
+                        return Some(Ok(Record::new(
+                            line,
+                            self.next_line_number,
+                            self.tabfile.separator,
+                        )));
                     }
                 }
                 Err(e) => return Some(Err(e)),
@@ -201,12 +213,13 @@ impl Iterator for RowIterator {
 /// line. You can keep ownership of the `Record` even if you continue looping over the
 /// [Tabfile](struct.Tabfile.html).
 pub struct Record {
+    line_number: usize,
     line: String,
     ranges: Vec<Range<usize>>,
 }
 
 impl Record {
-    fn new(line: String, separator: char) -> Record {
+    fn new(line: String, line_number: usize, separator: char) -> Record {
         let mut slice_start = 0;
         let mut slice_end = 0;
         let mut seen_newline = false;
@@ -225,7 +238,11 @@ impl Record {
         if !seen_newline {
             ranges.push(slice_start..line.len())
         }
-        Record { line, ranges }
+        Record {
+            line,
+            line_number,
+            ranges,
+        }
     }
 
     /// Get the individual (tab-)separated fields of a line
@@ -242,6 +259,13 @@ impl Record {
     /// Get the original line unchanged
     pub fn line(&self) -> &str {
         &self.line
+    }
+
+    /// Get the original line number
+    ///
+    /// Please note that the line number counts start from one.
+    pub fn line_number(&self) -> usize {
+        self.line_number
     }
 
     /// Get the number of fields
@@ -288,6 +312,7 @@ mod tests {
             let fields = record.fields();
             match i {
                 0 => {
+                    assert_eq!(record.line_number(), 3);
                     assert_eq!(fields[0], "foo");
                     assert_eq!(fields[1], "bar");
                     assert_eq!(fields[2], "baz");
@@ -296,6 +321,7 @@ mod tests {
                     assert_eq!(record.len(), 4);
                 }
                 1 => {
+                    assert_eq!(record.line_number(), 4);
                     assert_eq!(fields[0], "alpha");
                     assert_eq!(fields[1], "beta");
                     assert_eq!(fields[2], "gamma");
@@ -303,6 +329,7 @@ mod tests {
                     assert_eq!(record.len(), 4);
                 }
                 2 => {
+                    assert_eq!(record.line_number(), 6);
                     assert_eq!(fields[0], "Leonardo");
                     assert_eq!(fields[1], "Michelangelo");
                     assert_eq!(fields[2], "Donatello");
@@ -310,6 +337,7 @@ mod tests {
                     assert_eq!(record.len(), 4);
                 }
                 3 => {
+                    assert_eq!(record.line_number(), 8);
                     assert_eq!(fields[0], "red");
                     assert_eq!(fields[1], "yellow");
                     assert_eq!(fields[2], "green");
@@ -333,11 +361,13 @@ mod tests {
             let fields = record.fields();
             match i {
                 0 => {
+                    assert_eq!(record.line_number(), 1);
                     assert_eq!(fields[0], "ä line with Ünicöde symböls");
                     assert_eq!(fields[1], "møre wørds tø ræd");
                     assert_eq!(record.len(), 2);
                 }
                 1 => {
+                    assert_eq!(record.line_number(), 2);
                     assert_eq!(fields[0], "éverything îs strànge");
                     assert_eq!(fields[1], "💣ℝ is it?");
                     assert_eq!(record.len(), 2);
@@ -361,6 +391,7 @@ mod tests {
             let fields = record.fields();
             match i {
                 0 => {
+                    assert_eq!(record.line_number(), 1);
                     assert_eq!(fields[0], "");
                     assert_eq!(fields[1], "");
                     assert_eq!(fields[2], "");

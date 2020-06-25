@@ -1,6 +1,6 @@
 [package]
 name = "tabfile"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Jörn Bethune"]
 edition = "2018"
 description = "A simple Rust library to read tab-delimited data"
